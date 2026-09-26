@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Matchday Bulletin</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="page">
+  <div class="panel">
+    <div class="masthead">
+      <h1 class="wordmark">Matchday Bulletin</h1>
+      <div class="rule"></div>
+      <div class="subtitle" id="todayLabel"></div>
+    </div>
+    <div class="divider"></div>
+    <div style="padding: 12px 32px 34px;" id="list"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); if (tg.colorScheme) document.documentElement.setAttribute('data-theme', tg.colorScheme); }
+
+const $ = id => document.getElementById(id);
+$('todayLabel').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+function showToast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+function groupByDate(list) {
+  const groups = {};
+  list.forEach(e => { (groups[e.date] ||= []).push(e); });
+  return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+}
+function fmtDate(d) {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+async function load() {
+  try {
+    const res = await fetch('/api/events');
+    const events = await res.json();
+    render(events);
+  } catch (e) {
+    showToast('Could not load fixtures right now');
+  }
+}
+
+function render(events) {
+  const list = $('list');
+  const upcoming = events.filter(e => e.date >= new Date().toISOString().slice(0, 10));
+  if (!upcoming.length) {
+    list.innerHTML = '<div class="empty">No fixtures posted yet — check back soon.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const [date, evs] of groupByDate(upcoming)) {
+    const label = document.createElement('div');
+    label.className = 'day-heading';
+    label.textContent = fmtDate(date);
+    list.appendChild(label);
+    evs.forEach(ev => {
+      const card = document.createElement('div');
+      card.className = 'match' + (ev.sent ? ' sent' : '');
+      card.innerHTML = `
+        ${ev.competition ? `<p class="match-comp">${escapeHtml(ev.competition)}</p>` : ''}
+        <p class="match-title">${escapeHtml(ev.match)}</p>
+        ${ev.kickoff ? `<p class="match-meta">Kickoff ${escapeHtml(ev.kickoff)}</p>` : ''}
+        ${ev.notes ? `<p class="match-notes">${escapeHtml(ev.notes)}</p>` : ''}
+      `;
+      list.appendChild(card);
+    });
+  }
+}
+
+load();
+setInterval(load, 30000); // keep the page fresh without a manual refresh
+</script>
+</body>
+</html>

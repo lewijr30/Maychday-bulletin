@@ -1,0 +1,9 @@
+{
+  "name": "matchday-bulletin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public fixture feed + password-protected admin for posting football events to Telegram.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

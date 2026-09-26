@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Matchday Bulletin — Admin</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .login-gate { padding: 40px 32px; text-align: center; }
+  .login-gate input {
+    width: 100%; padding: 10px 0; border: none; border-bottom: 1px solid var(--line);
+    background: transparent; color: var(--ink); font-size: 15px; font-family: 'Inter', sans-serif;
+    margin: 18px 0 20px; text-align: center;
+  }
+  .login-gate input:focus { outline: none; border-bottom-color: var(--brass); }
+  .login-error { color: var(--danger); font-size: 12.5px; margin-top: 10px; min-height: 16px; }
+  .hidden { display: none; }
+
+  .add-form { padding: 24px 32px 8px; }
+  .field-label { font-size: 11.5px; color: var(--ink-soft); margin-bottom: 6px; display: block; }
+  .add-form input, .add-form textarea {
+    width: 100%; padding: 8px 0; border: none; border-bottom: 1px solid var(--line); background: transparent;
+    color: var(--ink); font-size: 15px; font-family: 'Inter', sans-serif; margin-bottom: 16px;
+  }
+  .add-form input[name="match"] { font-family: 'Fraunces', serif; font-size: 18px; }
+  .add-form textarea { resize: vertical; min-height: 44px; line-height: 1.5; }
+  .add-form input:focus, .add-form textarea:focus { outline: none; border-bottom-color: var(--brass); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; align-items: end; }
+
+  .agenda { padding: 12px 32px 30px; }
+  .match-actions { display: flex; align-items: center; gap: 16px; }
+  .sent-tag { font-size: 11px; color: var(--ok); margin-left: auto; font-weight: 500; }
+  .edit-field {
+    width: 100%; border: none; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink);
+    font-family: 'Inter', sans-serif; font-size: 14px; padding: 7px 0; margin-bottom: 10px;
+  }
+  .edit-match { font-family: 'Fraunces', serif; font-size: 17px; }
+  .edit-field:focus { outline: none; border-bottom-color: var(--brass); }
+  .logout { position: absolute; top: 24px; right: 28px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="panel">
+
+    <div class="login-gate" id="loginGate">
+      <h1 class="wordmark" style="font-size:26px;">Admin access</h1>
+      <div class="rule"></div>
+      <input type="password" id="passwordInput" placeholder="Password" autocomplete="current-password">
+      <div><button class="btn btn-brass" id="loginBtn">Enter</button></div>
+      <div class="login-error" id="loginError"></div>
+    </div>
+
+    <div id="adminArea" class="hidden">
+      <div class="masthead" style="position:relative;">
+        <button class="btn-text logout" id="logoutBtn">Log out</button>
+        <h1 class="wordmark">Matchday Bulletin</h1>
+        <div class="rule"></div>
+        <div class="subtitle" id="todayLabel"></div>
+      </div>
+
+      <div class="add-form">
+        <span class="field-label">Post a fixture</span>
+        <input type="text" name="match" id="newMatch" placeholder="e.g. Arsenal vs Chelsea">
+        <div class="grid2">
+          <input type="text" id="newComp" placeholder="Competition (e.g. Premier League)">
+          <input type="time" id="newKickoff">
+        </div>
+        <textarea id="newNotes" placeholder="Notes (venue, broadcast, storylines...)"></textarea>
+        <div class="grid3">
+          <input type="date" id="newDate">
+          <div></div>
+          <button class="btn btn-brass" id="addBtn">Add fixture</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="agenda" id="list"></div>
+    </div>
+
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+let adminKey = sessionStorage.getItem('admin_key') || '';
+let events = [];
+
+function showToast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch('/api' + path, {
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Key': adminKey },
+    ...options
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function tryLogin(password) {
+  const res = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password })
+  });
+  const data = await res.json().catch(() => ({}));
+  return res.ok && data.ok;
+}
+
+$('loginBtn').onclick = async () => {
+  const pw = $('passwordInput').value;
+  $('loginError').textContent = '';
+  const ok = await tryLogin(pw);
+  if (ok) {
+    adminKey = pw;
+    sessionStorage.setItem('admin_key', pw);
+    enterAdmin();
+  } else {
+    $('loginError').textContent = 'Incorrect password';
+  }
+};
+$('passwordInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
+
+$('logoutBtn').onclick = () => {
+  sessionStorage.removeItem('admin_key');
+  adminKey = '';
+  $('adminArea').classList.add('hidden');
+  $('loginGate').classList.remove('hidden');
+  $('passwordInput').value = '';
+};
+
+async function enterAdmin() {
+  $('loginGate').classList.add('hidden');
+  $('adminArea').classList.remove('hidden');
+  $('todayLabel').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  $('newDate').value = todayISO();
+  await loadEvents();
+}
+
+async function loadEvents() {
+  try {
+    events = await api('/events');
+    render();
+  } catch (e) {
+    showToast('Could not load fixtures');
+  }
+}
+
+$('addBtn').onclick = async () => {
+  const match = $('newMatch').value.trim();
+  const competition = $('newComp').value.trim();
+  const kickoff = $('newKickoff').value;
+  const notes = $('newNotes').value.trim();
+  const date = $('newDate').value || todayISO();
+  if (!match) { showToast('Add the match name first'); return; }
+  try {
+    const ev = await api('/events', { method: 'POST', body: JSON.stringify({ match, competition, kickoff, notes, date }) });
+    events.push(ev);
+    $('newMatch').value = ''; $('newComp').value = ''; $('newKickoff').value = ''; $('newNotes').value = '';
+    $('newDate').value = todayISO();
+    render();
+  } catch (e) { showToast(e.message); }
+};
+
+async function deleteEvent(id) {
+  try { await api('/events/' + id, { method: 'DELETE' }); events = events.filter(e => e.id !== id); render(); }
+  catch (e) { showToast(e.message); }
+}
+function startEdit(id) { events = events.map(e => e.id === id ? { ...e, editing: true } : e); render(); }
+async function saveEdit(id, fields) {
+  try {
+    const updated = await api('/events/' + id, { method: 'PUT', body: JSON.stringify(fields) });
+    events = events.map(e => e.id === id ? { ...updated, editing: false } : e);
+    render();
+  } catch (e) { showToast(e.message); }
+}
+async function sendEvent(id) {
+  const btn = document.querySelector(`[data-send="${id}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    const updated = await api('/events/' + id + '/send', { method: 'POST' });
+    events = events.map(e => e.id === id ? updated : e);
+    showToast('Posted to Telegram');
+    render();
+  } catch (e) {
+    showToast(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+  }
+}
+
+function groupByDate(list) {
+  const groups = {};
+  list.forEach(e => { (groups[e.date] ||= []).push(e); });
+  return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+}
+function fmtDate(d) {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function escapeAttr(s) { return (s || '').replace(/"/g, '&quot;'); }
+
+function render() {
+  const list = $('list');
+  if (!events.length) { list.innerHTML = '<div class="empty">No fixtures yet — post your first one above.</div>'; return; }
+  list.innerHTML = '';
+  for (const [date, evs] of groupByDate(events)) {
+    const label = document.createElement('div');
+    label.className = 'day-heading';
+    label.textContent = fmtDate(date);
+    list.appendChild(label);
+    evs.forEach(ev => {
+      const card = document.createElement('div');
+      card.className = 'match' + (ev.sent ? ' sent' : '');
+      if (ev.editing) {
+        card.innerHTML = `
+          <input type="text" value="${escapeAttr(ev.match)}" class="edit-field edit-match">
+          <input type="text" value="${escapeAttr(ev.competition)}" class="edit-field" placeholder="Competition">
+          <input type="time" value="${ev.kickoff || ''}" class="edit-field">
+          <textarea class="edit-field">${escapeHtml(ev.notes)}</textarea>
+          <input type="date" value="${ev.date}" class="edit-field">
+          <div class="match-actions">
+            <button class="btn btn-brass save-edit">Save</button>
+            <button class="btn btn-line cancel-edit">Cancel</button>
+          </div>`;
+        const inputs = card.querySelectorAll('.edit-field');
+        card.querySelector('.save-edit').onclick = () => saveEdit(ev.id, {
+          match: inputs[0].value.trim() || ev.match,
+          competition: inputs[1].value.trim(),
+          kickoff: inputs[2].value,
+          notes: inputs[3].value,
+          date: inputs[4].value
+        });
+        card.querySelector('.cancel-edit').onclick = () => { ev.editing = false; render(); };
+      } else {
+        card.innerHTML = `
+          ${ev.competition ? `<p class="match-comp">${escapeHtml(ev.competition)}</p>` : ''}
+          <p class="match-title">${escapeHtml(ev.match)}</p>
+          ${ev.kickoff ? `<p class="match-meta">Kickoff ${escapeHtml(ev.kickoff)}</p>` : ''}
+          ${ev.notes ? `<p class="match-notes">${escapeHtml(ev.notes)}</p>` : ''}
+          <div class="match-actions">
+            <button class="btn-text" data-send="${ev.id}">Send</button>
+            <button class="btn-text edit-a">Edit</button>
+            <button class="btn-text delete-a">Delete</button>
+            ${ev.sent ? '<span class="sent-tag">Posted ✓</span>' : ''}
+          </div>`;
+        card.querySelector(`[data-send="${ev.id}"]`).onclick = () => sendEvent(ev.id);
+        card.querySelector('.edit-a').onclick = () => startEdit(ev.id);
+        card.querySelector('.delete-a').onclick = () => deleteEvent(ev.id);
+      }
+      list.appendChild(card);
+    });
+  }
+}
+
+// auto-login if we already have a key from this session
+if (adminKey) {
+  tryLogin(adminKey).then(ok => { if (ok) enterAdmin(); else sessionStorage.removeItem('admin_key'); });
+}
+</script>
+</body>
+</html>
